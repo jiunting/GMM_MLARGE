@@ -18,16 +18,25 @@ import os
 import seaborn as sns
 sns.set()
 
-def D2PGD(E,N,Z):
+#def D2PGD(E,N,Z):
+#    '''
+#        or PGV or PGA
+#    '''
+#    D=(E**2.0+N**2.0+Z**2.0)**0.5
+#    PGD=np.maximum.accumulate(D)
+#    return PGD
+    
+def D2PGD(E,N):
     '''
         or PGV or PGA
     '''
-    D=(E**2.0+N**2.0+Z**2.0)**0.5
+    D=(E**2.0+N**2.0)**0.5
     PGD=np.maximum.accumulate(D)
     return PGD
 
 def get_tcs(EQtime,T,E_file,N_file,Z_file):
     #start calculate PGA from 3-comps, dealing with time
+    #10/20: Change to horizontal component only, use all time
     '''
         EQtime: time in obspy UTCDateTime format
         T: interpolated time. 0 is the origin time
@@ -41,25 +50,27 @@ def get_tcs(EQtime,T,E_file,N_file,Z_file):
     DD_N = D_N.copy()
     DD_N.detrend('linear')
     DD_N.trim(starttime=EQtime,endtime=EQtime+T[-1]+10,pad=True,fill_value=0)
-    D_Z = obspy.read(Z_file)
-    DD_Z = D_Z.copy()
-    DD_Z.detrend('linear')
-    DD_Z.trim(starttime=EQtime,endtime=EQtime+T[-1]+10,pad=True,fill_value=0)
+    #D_Z = obspy.read(Z_file)
+    #DD_Z = D_Z.copy()
+    #DD_Z.detrend('linear')
+    #DD_Z.trim(starttime=EQtime,endtime=EQtime+T[-1]+10,pad=True,fill_value=0)
     #make the data=0 at 0 second
     DD_E[0].data = DD_E[0].data-DD_E[0].data[0]
     DD_N[0].data = DD_N[0].data-DD_N[0].data[0]
-    DD_Z[0].data = DD_Z[0].data-DD_Z[0].data[0]
-    Dsum = (DD_E[0].data**2+DD_N[0].data**2+DD_Z[0].data**2)**0.5
-    PGD = D2PGD(DD_E[0].data,DD_N[0].data,DD_Z[0].data)
+    #DD_Z[0].data = DD_Z[0].data-DD_Z[0].data[0]
+    #Dsum = (DD_E[0].data**2+DD_N[0].data**2+DD_Z[0].data**2)**0.5
+    #PGD = D2PGD(DD_E[0].data,DD_N[0].data,DD_Z[0].data)
+    Dsum = (DD_E[0].data**2+DD_N[0].data**2)**0.5
+    PGD = D2PGD(DD_E[0].data,DD_N[0].data)
     assert np.sum(DD_E[0].times() == DD_N[0].times())==len(DD_E[0].times()), "E-N are different"
-    assert np.sum(DD_E[0].times() == DD_Z[0].times())==len(DD_Z[0].times()), "E-Z are different"
+    #assert np.sum(DD_E[0].times() == DD_Z[0].times())==len(DD_Z[0].times()), "E-Z are different"
     t = DD_E[0].times()
     interp_data_E = np.interp(T,t,DD_E[0].data)
     interp_data_N = np.interp(T,t,DD_N[0].data)
-    interp_data_Z = np.interp(T,t,DD_Z[0].data)
+    #interp_data_Z = np.interp(T,t,DD_Z[0].data)
     interp_data_D = np.interp(T,t,Dsum)
     interp_data_PGD = np.interp(T,t,PGD)
-    return interp_data_E,interp_data_N,interp_data_Z,interp_data_D,interp_data_PGD
+    return interp_data_E,interp_data_N,interp_data_D,interp_data_PGD
 
 
 def WGRW12(y, mode):
@@ -103,8 +114,8 @@ titles = ["Illapel2015","Iquique2014","Maule2010","Melinka2016","Iquique_aftersh
 EQt=[obspy.UTCDateTime(2015,9,16,22,54,33),obspy.UTCDateTime(2014,4,1,23,46,47),obspy.UTCDateTime(2010,2,27,6,34,14),obspy.UTCDateTime(2016,12,25,14,22,26),obspy.UTCDateTime(2014,4,3,2,43,13)]
 #EQMw=[8.3,8.2,8.8,7.6,7.7]
 hypos=[(-71.674,-31.573,22.4),(-70.769,-19.61,25.0),(-72.898,-36.122,22.9),(-73.941,-43.406,38.0),(-70.493,-20.571,22.4)]
-T = np.arange(102)*5+5 # sampled data in MLARGE and accel tcs
-
+T = np.arange(102)*5+5 # sampled data in MLARGE
+Tacc = np.arange(0,511,0.01) #sampled data in accel tcs
 # MMI threshold that we're interested
 MMI_thres_for_cal = [3,4,5,6,7,8,9]
 MMI_thres_for_plot = [3,4,5]
@@ -123,7 +134,9 @@ all_sav_maxMMI_model = []
 all_sav_Time_obs = {}   # time when the value passes the MMI threshold
 all_sav_Time_model = {} # time when the value passes the MMI threshold
 all_sav_warningTime = {} # warning time at different threshold (all_sav_Time_obs-all_sav_Time_model)
+all_sav_stats = {}
 for ieq in [0,1,2,3,4]:
+#for ieq in [4]:
     # reset for a new event
     sav_warningTime = {} #warning time for different MMI threshold
     sav_stats = {} #model statistics(accuracy, precision, recall) for MMI threshold
@@ -146,7 +159,7 @@ for ieq in [0,1,2,3,4]:
     MLARGE_predGM.sort()
     # ===========for each time epoch===========
     # -part #1. read shake prediction by MLARGE and get all the predictions from file
-    sav_MMI_model = {} #each station has a time series in list/array
+    sav_MMI_model = {} #each station has a time series in list/array. Length=102
     for it,t in enumerate(T):
         shake_file = MLARGE_predGM[it]
         shake = pd.read_csv(shake_file)
@@ -179,13 +192,17 @@ for ieq in [0,1,2,3,4]:
         assert sta_info['gain'][idx[0]]==sta_info['gain'][idx[1]]==sta_info['gain'][idx[2]], "different gain"
         stlo = sta_info.lon[idx[0]]
         stla = sta_info.lat[idx[0]]
-        gc = obspy.geodetics.locations2degrees(lat1=evla,long1=evlo,lat2=stla,long2=stlo)
-        tmp_stainfo[sta] = {'gc':gc}
+        #gc = obspy.geodetics.locations2degrees(lat1=evla,long1=evlo,lat2=stla,long2=stlo)
+        hypodist, _, _ = obspy.geodetics.base.gps2dist_azimuth(lat1=evla,lon1=evlo,lat2=stla,lon2=stlo)
+        hypodist = hypodist*1e-3
+        tmp_stainfo[sta] = {'dist':hypodist}
         # get data
-        E, N, Z, D, PGA = get_tcs(EQt[ieq],T,E_file,N_file,Z_file)
+        #E, N, Z, D, PGA = get_tcs(EQt[ieq],T,E_file,N_file,Z_file)
+        E, N, D, PGA = get_tcs(EQt[ieq],Tacc,E_file,N_file,Z_file)
         # data divided by gain and convert MMI
         gain = sta_info['gain'][idx[0]]
-        E, N, Z, D, PGA = E/gain, N/gain, Z/gain, D/gain, PGA/gain #[cm/s2]
+        #E, N, Z, D, PGA = E/gain, N/gain, Z/gain, D/gain, PGA/gain #[cm/s2]
+        E, N, D, PGA = E/gain, N/gain, D/gain, PGA/gain #[cm/s2]
         MMI_obs = WGRW12(PGA,0)
         #print('gain=',gain)
         #print(MMI_obs)
@@ -193,12 +210,12 @@ for ieq in [0,1,2,3,4]:
         # make some plot
         if fig_out:
             plt.plot(T,sav_MMI_model[sta],'r')
-            plt.plot(T,sav_MMI_obs[sta],'k')
+            plt.plot(Tacc,sav_MMI_obs[sta],'k')
             plt.xlabel('Time (s)',fontsize=14)
             plt.ylabel('MMI',fontsize=14)
             plt.ylim([0,10])
-            plt.title('%s GC=%.1f'%(sta,gc),fontsize=14)
-            plt.legend(['model','obs.'])
+            plt.title('%s (%.1f km)'%(sta,hypodist),fontsize=14)
+            plt.legend(['Prediction','Observation'])
             plt.savefig(fig_out+"/"+titles[ieq]+"_"+sta+".png",dpi=300)
             plt.close()
         #plt.show()
@@ -210,14 +227,23 @@ for ieq in [0,1,2,3,4]:
         for i_sac,sta in enumerate(sav_MMI_obs.keys()):
             sav_maxMMI_obs.append(max(sav_MMI_obs[sta]))
             sav_maxMMI_model.append(max(sav_MMI_model[sta]))
+            #get warning time
             idx_t_obs = np.where(sav_MMI_obs[sta]>=thres)[0]
             idx_t_model = np.where(sav_MMI_model[sta]>=thres)[0]
             # only calculate when TP
             if len(idx_t_obs)!=0 and len(idx_t_model)!=0:
-                TP += 1
-                idx_t_obs0 = idx_t_obs[0]
+                #TP += 1
+                idx_t_obs0 = idx_t_obs[0] #take the first one
                 idx_t_model0 = idx_t_model[0]
-                warningTime = (idx_t_obs0-idx_t_model0)*5 # sampling interval is 5 s
+                t_obs0 = Tacc[idx_t_obs0]
+                t_model0 = T[idx_t_model0]
+                #warningTime = (idx_t_obs0-idx_t_model0)*5 # sampling interval is 5 s
+                warningTime = t_obs0-t_model0
+                if warningTime>0:
+                    TP += 1
+                else:
+                    FN += 1 #too late warning
+                #saving warning time
                 if thres in sav_warningTime:
                     sav_warningTime[thres]['time'].append(warningTime)
                     sav_warningTime[thres]['idx'].append(i_sac)
@@ -233,12 +259,12 @@ for ieq in [0,1,2,3,4]:
             if len(idx_t_obs)!=0 and len(idx_t_model)!=0:
                 if thres in all_sav_warningTime:
                     all_sav_warningTime[thres]['time'].append(warningTime)
-                    all_sav_Time_obs[thres]['time'].append(idx_t_obs0*5+5)
-                    all_sav_Time_model[thres]['time'].append(idx_t_model0*5+5)
+                    all_sav_Time_obs[thres]['time'].append(t_obs0)
+                    all_sav_Time_model[thres]['time'].append(t_model0)
                 else:
                     all_sav_warningTime[thres] = {'time':[warningTime]}
-                    all_sav_Time_obs[thres] = {'time':[idx_t_obs0*5+5]}
-                    all_sav_Time_model[thres] = {'time':[idx_t_model0*5+5]}
+                    all_sav_Time_obs[thres] = {'time':[t_obs0]}
+                    all_sav_Time_model[thres] = {'time':[t_model0]}
             else:
                 if thres in all_sav_warningTime:
                     all_sav_warningTime[thres]['time'].append(np.nan)
@@ -258,11 +284,12 @@ for ieq in [0,1,2,3,4]:
             recall = (TP/(TP+FN))*100
         except:
             recall = np.nan
-        sav_stats[thres] = {'acc':accuracy,'prec':precision,'recall':recall}
+        sav_stats[thres] = {'acc':accuracy, 'prec':precision, 'recall':recall, 'TP':TP, 'TN':TN, 'FP':FP, 'FN':FN}
     all_sav_maxMMI_obs += sav_maxMMI_obs
     all_sav_maxMMI_model += sav_maxMMI_model
     sav_maxMMI_obs = np.array(sav_maxMMI_obs)
     sav_maxMMI_model = np.array(sav_maxMMI_model)
+    all_sav_stats[ieq] = sav_stats #save the stats
     print('Number of stations: %d'%(len(sav_maxMMI_obs)))
     print('Stats=',sav_stats)
     #=====make MMI threshold plot=====
@@ -275,7 +302,7 @@ for ieq in [0,1,2,3,4]:
         plt.subplot(1,3,i+1)
         idx_TP = np.array(sav_warningTime[thres]['idx'])
         idx_XTP = [ii for ii in range(len(sav_maxMMI_obs)) if ii not in idx_TP]
-        # plot not TP as dots
+        # plot not TP as black dots
         plt.plot(sav_maxMMI_obs[idx_XTP],sav_maxMMI_model[idx_XTP],'ko')
         # if TP, show also the warning time
         tmp_warningTime = np.array(sav_warningTime[thres]['time'])
@@ -343,19 +370,37 @@ np.save(npy_out+"/all_sav_maxMMI_model.npy",all_sav_maxMMI_model)
 np.save(npy_out+"/all_sav_Time_obs.npy",all_sav_Time_obs)
 np.save(npy_out+"/all_sav_Time_model.npy",all_sav_Time_model)
 np.save(npy_out+"/all_sav_warningTime.npy",all_sav_warningTime)
+np.save(npy_out+"/all_sav_stats.npy",all_sav_stats)
 
+# ======load the data directly======
 
-# ======make warning time analysis plot======
 all_sav_maxMMI_obs = np.load(npy_out+"/all_sav_maxMMI_obs.npy")
 all_sav_maxMMI_model = np.load(npy_out+"/all_sav_maxMMI_model.npy")
 all_sav_Time_obs = np.load(npy_out+"/all_sav_Time_obs.npy",allow_pickle=True)
 all_sav_Time_model = np.load(npy_out+"/all_sav_Time_model.npy",allow_pickle=True)
 all_sav_warningTime = np.load(npy_out+"/all_sav_warningTime.npy",allow_pickle=True)
+all_sav_stats = np.load(npy_out+"/all_sav_stats.npy",allow_pickle=True)
 
 all_sav_Time_obs = all_sav_Time_obs.item()
 all_sav_Time_model = all_sav_Time_model.item()
 all_sav_warningTime = all_sav_warningTime.item()
+all_sav_stats = all_sav_stats.item()
 
+# ======confusion matrix calculation=======
+MMI_thres_for_cal = [3,4,5,6,7,8,9]
+confusion = {}
+for thres in MMI_thres_for_cal:
+    TP_idx = np.where((all_sav_maxMMI_obs>=thres) & (all_sav_maxMMI_model>=thres))[0]
+    FN_idx = np.where((all_sav_maxMMI_obs>=thres) & (all_sav_maxMMI_model<thres))[0]
+    FP_idx = np.where((all_sav_maxMMI_obs<thres) & (all_sav_maxMMI_model>=thres))[0]
+    TN_idx = np.where((all_sav_maxMMI_obs<thres) & (all_sav_maxMMI_model<thres))[0]
+    assert (len(TP_idx)+len(FN_idx)+len(FP_idx)+len(TN_idx))==len(all_sav_maxMMI_obs), "confusion calculation got wrong!"
+    confusion[thres] = {'TP':len(TP_idx),'FN':len(FN_idx),'FP':len(FP_idx),'TN':len(TN_idx)}
+    
+
+
+
+# ======make warning time analysis plot======
 # make colorbar for different groups
 D = [k for k in all_sav_warningTime.keys()]
 D = [3,4,5,6,7]
@@ -381,17 +426,20 @@ for i,k in enumerate(D):
     t = t[sor_idx]
     p = 1. * np.arange(len(t)) / (len(t) - 1)
     ax2.set_xlim(ax1.get_xlim())
-    ax2.plot(t,p,color='k',linewidth=3)
-    ax2.plot(t,p,color=cm[i],linewidth=2)
+    ax2.plot(t,p[::-1],color='k',linewidth=3)
+    ax2.plot(t,p[::-1],color=cm[i],linewidth=2)
     ax2.grid(False)
     
+ax1.invert_xaxis()
+    
+ax2.set_ylim([0,1])
 ax1.set_xlabel('Warning Time (s)',fontsize=14,labelpad=0)
 ax1.set_ylabel('Number of Alerts',fontsize=14,labelpad=0)
 ax2.set_ylabel('CDF',fontsize=14,labelpad=0)
 ax1.tick_params(pad=1.5,length=0,size=0,labelsize=12)
-ax2.tick_params(pad=1.5,length=0,size=0,labelsize=12)
+ax2.tick_params(pad=1.5,length=0,size=4,labelsize=12)
 # add colorbar
-cbaxes = fig.add_axes([0.72, 0.25, 0.06, 0.52])
+cbaxes = fig.add_axes([0.18, 0.25, 0.06, 0.52])
 clb = plt.colorbar(cmap,cax=cbaxes,alpha=1)
 #clb = plt.colorbar(cmap)
 clb.set_label('MMI Threshold', rotation=90,labelpad=1,size=14) #the smaller the labelpad is closer to the bar
@@ -412,12 +460,14 @@ ax1 = plt.gca()
 ax1.set_xlabel('Max obs. MMI',fontsize=14,labelpad=0)
 ax1.set_ylabel('Time when MMI$\geq$3 (s)',fontsize=14,labelpad=0)
 ax1.tick_params(pad=1.5,length=0,size=0,labelsize=12)
+ax1.set_title('Observation',fontsize=14)
 plt.subplot(1,2,2)
 plt.plot(all_sav_maxMMI_obs,all_sav_Time_model[3]['time'],'r.')
 plt.ylim([0,250])
 ax1 = plt.gca()
 ax1.set_xlabel('Max obs. MMI',fontsize=14,labelpad=0)
 ax1.tick_params(pad=1.5,length=0,size=0,labelsize=12)
+ax1.set_title('M-LARGE',fontsize=14)
 
 
 fig = plt.figure()
@@ -429,9 +479,12 @@ ax1 = plt.gca()
 ax1.set_xlabel('Max obs. MMI',fontsize=14,labelpad=0)
 ax1.set_ylabel('Time when MMI$\geq$5 (s)',fontsize=14,labelpad=0)
 ax1.tick_params(pad=1.5,length=0,size=0,labelsize=12)
+ax1.set_title('Observation',fontsize=14)
 plt.subplot(1,2,2)
 plt.plot(all_sav_maxMMI_obs,all_sav_Time_model[5]['time'],'r.')
+plt.xlim([3,9.5])
 plt.ylim([0,250])
 ax1 = plt.gca()
 ax1.set_xlabel('Max obs. MMI',fontsize=14,labelpad=0)
 ax1.tick_params(pad=1.5,length=0,size=0,labelsize=12)
+ax1.set_title('M-LARGE',fontsize=14)
