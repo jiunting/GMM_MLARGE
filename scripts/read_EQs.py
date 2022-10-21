@@ -110,7 +110,7 @@ eq_dir = "../data/testsuite_processed"
 
 # list all the EQ folders under the eq_dir, same order as the MLARGE output
 EQs = ["Illapel2015","Iquique2014","Maule2010_new","Melinka2016","Iquique_aftershock2014_new"]
-titles = ["Illapel2015","Iquique2014","Maule2010","Melinka2016","Iquique_aftershock2014"]
+titles = ["2015 M8.3 Illapel","2014 M8.2 Iquique","2010 M8.8 Maule","2016 M7.6 Melinka","2014 M7.7 Iquique aftershock"]
 EQt=[obspy.UTCDateTime(2015,9,16,22,54,33),obspy.UTCDateTime(2014,4,1,23,46,47),obspy.UTCDateTime(2010,2,27,6,34,14),obspy.UTCDateTime(2016,12,25,14,22,26),obspy.UTCDateTime(2014,4,3,2,43,13)]
 #EQMw=[8.3,8.2,8.8,7.6,7.7]
 hypos=[(-71.674,-31.573,22.4),(-70.769,-19.61,25.0),(-72.898,-36.122,22.9),(-73.941,-43.406,38.0),(-70.493,-20.571,22.4)]
@@ -397,8 +397,19 @@ for thres in MMI_thres_for_cal:
     assert (len(TP_idx)+len(FN_idx)+len(FP_idx)+len(TN_idx))==len(all_sav_maxMMI_obs), "confusion calculation got wrong!"
     confusion[thres] = {'TP':len(TP_idx),'FN':len(FN_idx),'FP':len(FP_idx),'TN':len(TN_idx)}
     
-
-
+#plot confusion matrix
+import seaborn as sns
+labels = ['True Negatve','False Positive','False Negative','True Positive']
+labels = np.asarray(labels).reshape(2,2)
+for thresh in confusion.keys():
+    A = [[confusion[thresh]['TN'],confusion[thresh]['FP']],[confusion[thresh]['FN'],confusion[thresh]['TP']]]
+    sns.heatmap(A,annot=labels, fmt='', cmap='Blues')
+    #ax=plt.gca()
+    #ax.tick_params(labelbottom=False,labelleft=False) #remove 0, 1
+    plt.xlabel('Prediction')
+    plt.ylabel('True')
+    plt.title('MMI=%d'%(thresh))
+    plt.show()
 
 # ======make warning time analysis plot======
 # make colorbar for different groups
@@ -418,8 +429,7 @@ for i,k in enumerate(D):
     #x = (h[1][1:]+h[1][:-1])*0.5
     #ax1.plot(x,h[0],color=cm[i])
     # make cdf
-    t = all_sav_warningTime[k]['time']
-    t = np.array(t)
+    t = np.array(all_sav_warningTime[k]['time'])
     idx = np.where((t>=0) &  (~np.isnan(t)))[0]
     t = t[idx]
     sor_idx = np.argsort(t)
@@ -429,6 +439,7 @@ for i,k in enumerate(D):
     ax2.plot(t,p[::-1],color='k',linewidth=3)
     ax2.plot(t,p[::-1],color=cm[i],linewidth=2)
     ax2.grid(False)
+    #break
     
 ax1.invert_xaxis()
     
